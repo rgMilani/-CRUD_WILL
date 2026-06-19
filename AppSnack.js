@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import {
   Provider as PaperProvider, Appbar, Card, Title, Paragraph,
-  Button, Modal, Portal, TextInput, Text, Avatar, Chip,
+  Button, TextInput, Text, Avatar, Chip,
   Divider, ActivityIndicator, FAB, HelperText
 } from 'react-native-paper';
 import { NavigationContainer } from '@react-navigation/native';
@@ -23,9 +23,9 @@ const firebaseConfig = {
   messagingSenderId: "338452438950",
   appId: "1:338452438950:web:2184c8a4ebc3159dccb967"
 };
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-const auth = getAuth(app);
-const db = getFirestore(app);
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
 
 // ─── Auth Context ────────────────────────────────────────────
 const AuthContext = createContext({});
@@ -34,26 +34,30 @@ function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
+    const unsub = auth.onAuthStateChanged(async (u) => {
       if (u) {
-        const snap = await getDoc(doc(db, 'usuarios', u.uid));
-        setUser({ ...u, perfil: snap.exists() ? snap.data() : {} });
-      } else setUser(null);
+        const snap = await db.collection('usuarios').doc(u.uid).get();
+        setUser({ uid: u.uid, email: u.email, displayName: u.displayName, perfil: snap.exists ? snap.data() : {} });
+      } else {
+        setUser(null);
+      }
       setLoading(false);
     });
     return unsub;
   }, []);
 
   const registrar = async (email, senha, nome) => {
-    const cred = await createUserWithEmailAndPassword(auth, email, senha);
-    await updateProfile(cred.user, { displayName: nome });
-    await setDoc(doc(db, 'usuarios', cred.user.uid), {
-      nome, email, telefone: '', bio: '', dataCriacao: serverTimestamp()
+    const cred = await auth.createUserWithEmailAndPassword(email, senha);
+    await cred.user.updateProfile({ displayName: nome });
+    await db.collection('usuarios').doc(cred.user.uid).set({
+      nome, email, telefone: '', bio: '',
+      dataCriacao: firebase.firestore.FieldValue.serverTimestamp()
     });
     return cred.user;
   };
-  const login = (email, senha) => signInWithEmailAndPassword(auth, email, senha);
-  const logout = () => signOut(auth);
+
+  const login = (email, senha) => auth.signInWithEmailAndPassword(email, senha);
+  const logout = () => auth.signOut();
 
   return (
     <AuthContext.Provider value={{ user, loading, registrar, login, logout }}>
@@ -63,7 +67,6 @@ function AuthProvider({ children }) {
 }
 const useAuth = () => useContext(AuthContext);
 
-// ─── Stack Navigator ─────────────────────────────────────────
 const Stack = createStackNavigator();
 
 // ═══════════════════════════════════════════════════════════════
@@ -103,17 +106,15 @@ function LoginScreen({ navigation }) {
           <Card.Content>
             <Title style={s.centerTitle}>Entrar</Title>
             <TextInput label="E-mail" value={email} onChangeText={setEmail} mode="outlined"
-              keyboardType="email-address" autoCapitalize="none" style={s.input}
-              left={<TextInput.Icon icon="email" />} />
+              keyboardType="email-address" autoCapitalize="none" style={s.input} />
             <TextInput label="Senha" value={senha} onChangeText={setSenha} mode="outlined"
               secureTextEntry={!senhaVisivel} style={s.input}
-              left={<TextInput.Icon icon="lock" />}
               right={<TextInput.Icon icon={senhaVisivel ? 'eye-off' : 'eye'} onPress={() => setSenhaVisivel(!senhaVisivel)} />} />
             <Button mode="contained" onPress={handleLogin} loading={loading} disabled={loading}
-              style={s.btnPrimary} icon="login">Entrar</Button>
+              style={s.btnPrimary}>Entrar</Button>
             <Divider style={s.divider} />
             <Text style={s.centerText}>Ainda não tem conta?</Text>
-            <Button mode="outlined" onPress={() => navigation.navigate('Cadastro')} disabled={loading} icon="account-plus">
+            <Button mode="outlined" onPress={() => navigation.navigate('Cadastro')} disabled={loading}>
               Criar Conta
             </Button>
           </Card.Content>
@@ -158,21 +159,20 @@ function CadastroScreen({ navigation }) {
           <Card.Content>
             <Title style={s.centerTitle}>Criar Conta</Title>
             <TextInput label="Nome Completo *" value={nome} onChangeText={setNome} mode="outlined"
-              autoCapitalize="words" style={s.input} left={<TextInput.Icon icon="account" />} />
+              autoCapitalize="words" style={s.input} />
             <TextInput label="E-mail *" value={email} onChangeText={setEmail} mode="outlined"
-              keyboardType="email-address" autoCapitalize="none" style={s.input} left={<TextInput.Icon icon="email" />} />
+              keyboardType="email-address" autoCapitalize="none" style={s.input} />
             <TextInput label="Senha * (mín. 6 caracteres)" value={senha} onChangeText={setSenha}
-              mode="outlined" secureTextEntry={!visivel} style={s.input} left={<TextInput.Icon icon="lock" />}
+              mode="outlined" secureTextEntry={!visivel} style={s.input}
               right={<TextInput.Icon icon={visivel ? 'eye-off' : 'eye'} onPress={() => setVisivel(!visivel)} />} />
             <TextInput label="Confirmar Senha *" value={confirmar} onChangeText={setConfirmar}
-              mode="outlined" secureTextEntry={!visivel} style={s.input} error={diverge}
-              left={<TextInput.Icon icon="lock-check" />} />
+              mode="outlined" secureTextEntry={!visivel} style={s.input} error={diverge} />
             {diverge && <HelperText type="error">As senhas não coincidem.</HelperText>}
             <Text style={s.obs}>* Campos obrigatórios</Text>
             <Button mode="contained" onPress={handleCadastro} loading={loading} disabled={loading}
-              style={s.btnPrimary} icon="account-plus">Cadastrar</Button>
+              style={s.btnPrimary}>Cadastrar</Button>
             <Divider style={s.divider} />
-            <Button mode="outlined" onPress={() => navigation.goBack()} disabled={loading} icon="arrow-left">
+            <Button mode="outlined" onPress={() => navigation.navigate('Login')} disabled={loading}>
               Já tenho conta
             </Button>
           </Card.Content>
@@ -213,7 +213,6 @@ function HomeScreen({ navigation }) {
                 <Title style={{ fontSize: 18 }}>{item.titulo}</Title>
                 <Paragraph style={{ color: '#666', fontSize: 13 }}>{item.desc}</Paragraph>
               </View>
-              <Avatar.Icon size={32} icon="chevron-right" style={{ backgroundColor: 'transparent' }} />
             </Card.Content>
           </Card>
         ))}
@@ -225,7 +224,7 @@ function HomeScreen({ navigation }) {
 // ═══════════════════════════════════════════════════════════════
 // TELA: PERFIL (CRUD)
 // ═══════════════════════════════════════════════════════════════
-function PerfilScreen() {
+function PerfilScreen({ navigation }) {
   const { logout } = useAuth();
   const [perfil, setPerfil] = useState({ nome: '', email: '', telefone: '', bio: '' });
   const [novaSenha, setNovaSenha] = useState('');
@@ -239,8 +238,8 @@ function PerfilScreen() {
   const carregarPerfil = async () => {
     setCarregando(true);
     try {
-      const snap = await getDoc(doc(db, 'usuarios', auth.currentUser.uid));
-      if (snap.exists()) setPerfil({ ...snap.data(), email: auth.currentUser.email });
+      const snap = await db.collection('usuarios').doc(auth.currentUser.uid).get();
+      if (snap.exists) setPerfil({ ...snap.data(), email: auth.currentUser.email });
     } catch (e) { Alert.alert('Erro', 'Não foi possível carregar o perfil.'); }
     finally { setCarregando(false); }
   };
@@ -249,16 +248,15 @@ function PerfilScreen() {
     if (!perfil.nome.trim()) { Alert.alert('Atenção', 'Nome não pode ser vazio.'); return; }
     setLoading(true);
     try {
-      await updateDoc(doc(db, 'usuarios', auth.currentUser.uid), {
+      await db.collection('usuarios').doc(auth.currentUser.uid).update({
         nome: perfil.nome.trim(), telefone: perfil.telefone.trim(),
-        bio: perfil.bio.trim(), dataAtualizacao: serverTimestamp()
+        bio: perfil.bio.trim(),
+        dataAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
       });
-      if (perfil.email !== auth.currentUser.email)
-        await updateEmail(auth.currentUser, perfil.email.trim());
       if (novaSenha.length >= 6 && senhaAtual) {
-        const cred = EmailAuthProvider.credential(auth.currentUser.email, senhaAtual);
-        await reauthenticateWithCredential(auth.currentUser, cred);
-        await updatePassword(auth.currentUser, novaSenha);
+        const cred = firebase.auth.EmailAuthProvider.credential(auth.currentUser.email, senhaAtual);
+        await auth.currentUser.reauthenticateWithCredential(cred);
+        await auth.currentUser.updatePassword(novaSenha);
         setSenhaAtual(''); setNovaSenha('');
       }
       Alert.alert('Sucesso', 'Perfil atualizado!');
@@ -273,8 +271,8 @@ function PerfilScreen() {
       { text: 'Excluir', style: 'destructive', onPress: async () => {
         setLoading(true);
         try {
-          await deleteDoc(doc(db, 'usuarios', auth.currentUser.uid));
-          await deleteUser(auth.currentUser);
+          await db.collection('usuarios').doc(auth.currentUser.uid).delete();
+          await auth.currentUser.delete();
         } catch (e) { Alert.alert('Erro', 'Faça login novamente e tente de novo.'); }
         finally { setLoading(false); }
       }}
@@ -284,49 +282,61 @@ function PerfilScreen() {
   const iniciais = (perfil.nome || '?').split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase();
 
   if (carregando) return (
-    <View style={s.center}><ActivityIndicator size="large" /><Text style={{ marginTop: 10 }}>Carregando...</Text></View>
+    <View style={s.center}>
+      <ActivityIndicator size="large" />
+      <Text style={{ marginTop: 10 }}>Carregando...</Text>
+    </View>
   );
 
   return (
     <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <Appbar.Header>
+        <Appbar.BackAction onPress={() => navigation.navigate('Home')} />
+        <Appbar.Content title="Meu Perfil" />
+      </Appbar.Header>
       <ScrollView style={{ backgroundColor: '#f3f4f6' }} keyboardShouldPersistTaps="handled">
         <View style={{ alignItems: 'center', padding: 30, backgroundColor: '#6200ee' }}>
           <Avatar.Text size={90} label={iniciais} style={{ backgroundColor: '#03dac4', marginBottom: 12 }} />
           <Title style={{ color: '#fff', fontSize: 22 }}>{perfil.nome || 'Usuário'}</Title>
           <Text style={{ color: '#ddd', fontSize: 14 }}>{auth.currentUser?.email}</Text>
-          {perfil.bio ? <Chip style={{ marginTop: 10, backgroundColor: 'rgba(255,255,255,0.2)' }} icon="information">{perfil.bio}</Chip> : null}
         </View>
 
         <Card style={{ margin: 12, elevation: 3 }}>
           <Card.Content>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Title>Dados Pessoais</Title>
-              {!modoEdicao && <Button icon="pencil" onPress={() => setModoEdicao(true)} compact mode="text">Editar</Button>}
+              {!modoEdicao && (
+                <Button onPress={() => setModoEdicao(true)} compact mode="text">Editar</Button>
+              )}
             </View>
             <Divider style={s.divider} />
-            <TextInput label="Nome Completo *" value={perfil.nome} onChangeText={v => setPerfil({ ...perfil, nome: v })}
-              mode="outlined" disabled={!modoEdicao} style={s.input} left={<TextInput.Icon icon="account" />} />
-            <TextInput label="E-mail *" value={perfil.email} onChangeText={v => setPerfil({ ...perfil, email: v })}
-              mode="outlined" keyboardType="email-address" autoCapitalize="none" disabled={!modoEdicao}
-              style={s.input} left={<TextInput.Icon icon="email" />} />
-            <TextInput label="Telefone" value={perfil.telefone} onChangeText={v => setPerfil({ ...perfil, telefone: v })}
-              mode="outlined" keyboardType="phone-pad" disabled={!modoEdicao} style={s.input} left={<TextInput.Icon icon="phone" />} />
-            <TextInput label="Bio" value={perfil.bio} onChangeText={v => setPerfil({ ...perfil, bio: v })}
-              mode="outlined" multiline numberOfLines={3} disabled={!modoEdicao} style={s.input} left={<TextInput.Icon icon="text" />} />
-            {modoEdicao && <>
-              <Divider style={s.divider} />
-              <Title style={{ fontSize: 16, marginBottom: 8 }}>Alterar Senha (opcional)</Title>
-              <TextInput label="Senha Atual" value={senhaAtual} onChangeText={setSenhaAtual}
-                mode="outlined" secureTextEntry style={s.input} left={<TextInput.Icon icon="lock" />} />
-              <TextInput label="Nova Senha (mín. 6 caracteres)" value={novaSenha} onChangeText={setNovaSenha}
-                mode="outlined" secureTextEntry style={s.input} left={<TextInput.Icon icon="lock-reset" />} />
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-                <Button mode="outlined" onPress={() => { setModoEdicao(false); carregarPerfil(); }}
-                  disabled={loading} style={{ flex: 1, marginRight: 4 }} icon="close">Cancelar</Button>
-                <Button mode="contained" onPress={salvarPerfil} loading={loading} disabled={loading}
-                  style={{ flex: 1, marginLeft: 4 }} icon="content-save">Salvar</Button>
-              </View>
-            </>}
+            <TextInput label="Nome Completo *" value={perfil.nome}
+              onChangeText={v => setPerfil({ ...perfil, nome: v })}
+              mode="outlined" disabled={!modoEdicao} style={s.input} />
+            <TextInput label="E-mail" value={perfil.email}
+              mode="outlined" disabled style={s.input} />
+            <TextInput label="Telefone" value={perfil.telefone}
+              onChangeText={v => setPerfil({ ...perfil, telefone: v })}
+              mode="outlined" keyboardType="phone-pad" disabled={!modoEdicao} style={s.input} />
+            <TextInput label="Bio" value={perfil.bio}
+              onChangeText={v => setPerfil({ ...perfil, bio: v })}
+              mode="outlined" multiline numberOfLines={3} disabled={!modoEdicao} style={s.input} />
+            {modoEdicao && (
+              <>
+                <Divider style={s.divider} />
+                <Title style={{ fontSize: 16, marginBottom: 8 }}>Alterar Senha (opcional)</Title>
+                <TextInput label="Senha Atual" value={senhaAtual} onChangeText={setSenhaAtual}
+                  mode="outlined" secureTextEntry style={s.input} />
+                <TextInput label="Nova Senha (mín. 6 caracteres)" value={novaSenha} onChangeText={setNovaSenha}
+                  mode="outlined" secureTextEntry style={s.input} />
+                <View style={{ flexDirection: 'row', marginTop: 8 }}>
+                  <Button mode="outlined" onPress={() => { setModoEdicao(false); carregarPerfil(); }}
+                    disabled={loading} style={{ flex: 1, marginRight: 4 }}>Cancelar</Button>
+                  <Button mode="contained" onPress={salvarPerfil} loading={loading} disabled={loading}
+                    style={{ flex: 1, marginLeft: 4 }}>Salvar</Button>
+                </View>
+              </>
+            )}
           </Card.Content>
         </Card>
 
@@ -334,8 +344,8 @@ function PerfilScreen() {
           <Card.Content>
             <Title>Conta</Title>
             <Divider style={s.divider} />
-            <Button mode="outlined" icon="logout" onPress={logout} style={{ marginBottom: 10 }}>Sair da Conta</Button>
-            <Button mode="contained" buttonColor="#FF3B30" icon="delete-forever" onPress={excluirConta} disabled={loading}>
+            <Button mode="outlined" onPress={logout} style={{ marginBottom: 10 }}>Sair da Conta</Button>
+            <Button mode="contained" color="#FF3B30" onPress={excluirConta} disabled={loading}>
               Excluir Minha Conta
             </Button>
           </Card.Content>
@@ -347,18 +357,22 @@ function PerfilScreen() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// TELA: PRODUTOS (CRUD)
+// TELA: PRODUTOS — lista
 // ═══════════════════════════════════════════════════════════════
 const CATEGORIAS = ['Eletrônico', 'Alimento', 'Vestuário', 'Serviço', 'Outro'];
-const COR_CAT = { 'Eletrônico': '#2196F3', 'Alimento': '#4CAF50', 'Vestuário': '#9C27B0', 'Serviço': '#FF9800', 'Outro': '#607D8B' };
+const COR_CAT = {
+  'Eletrônico': '#2196F3', 'Alimento': '#4CAF50',
+  'Vestuário': '#9C27B0', 'Serviço': '#FF9800', 'Outro': '#607D8B'
+};
 
 function ProdutosScreen({ navigation }) {
   const [produtos, setProdutos] = useState([]);
-  const [modalVisible, setModalVisible] = useState(false);
+  const [mostraForm, setMostraForm] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [salvando, setSalvando] = useState(false);
   const [editando, setEditando] = useState(false);
-  const estado = () => ({ id: null, nome: '', descricao: '', preco: '', categoria: 'Outro', estoque: '' });
-  const [atual, setAtual] = useState(estado());
+  const novoEstado = () => ({ id: null, nome: '', descricao: '', preco: '', categoria: 'Outro', estoque: '' });
+  const [atual, setAtual] = useState(novoEstado());
 
   useEffect(() => { carregar(); }, []);
 
@@ -366,8 +380,7 @@ function ProdutosScreen({ navigation }) {
     setLoading(true);
     try {
       const uid = auth.currentUser.uid;
-      const q = query(collection(db, 'usuarios', uid, 'produtos'), orderBy('dataCriacao', 'desc'));
-      const snap = await getDocs(q);
+      const snap = await db.collection('usuarios').doc(uid).collection('produtos').get();
       setProdutos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (e) { Alert.alert('Erro', e.message); }
     finally { setLoading(false); }
@@ -375,56 +388,114 @@ function ProdutosScreen({ navigation }) {
 
   const salvar = async () => {
     if (!atual.nome.trim()) { Alert.alert('Atenção', 'Informe o nome.'); return; }
-    if (!atual.preco.trim() || isNaN(parseFloat(atual.preco.replace(',', '.')))) {
-      Alert.alert('Atenção', 'Preço inválido.'); return;
-    }
-    setLoading(true);
+    const precoNum = parseFloat(atual.preco.replace(',', '.'));
+    if (!atual.preco.trim() || isNaN(precoNum)) { Alert.alert('Atenção', 'Preço inválido.'); return; }
+    setSalvando(true);
     const uid = auth.currentUser.uid;
     const dados = {
-      nome: atual.nome.trim(), descricao: atual.descricao.trim(),
-      preco: parseFloat(atual.preco.replace(',', '.')),
-      categoria: atual.categoria, estoque: atual.estoque ? parseInt(atual.estoque) : 0,
+      nome: atual.nome.trim(),
+      descricao: atual.descricao.trim(),
+      preco: precoNum,
+      categoria: atual.categoria,
+      estoque: atual.estoque ? parseInt(atual.estoque) : 0,
     };
     try {
       if (editando) {
-        await updateDoc(doc(db, 'usuarios', uid, 'produtos', atual.id), { ...dados, dataAtualizacao: serverTimestamp() });
+        await db.collection('usuarios').doc(uid).collection('produtos').doc(atual.id).update({
+          ...dados, dataAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
+        });
         Alert.alert('Sucesso', 'Produto atualizado!');
       } else {
-        await addDoc(collection(db, 'usuarios', uid, 'produtos'), { ...dados, dataCriacao: serverTimestamp() });
+        await db.collection('usuarios').doc(uid).collection('produtos').add({
+          ...dados, dataCriacao: firebase.firestore.FieldValue.serverTimestamp()
+        });
         Alert.alert('Sucesso', 'Produto cadastrado!');
       }
-      fechar(); carregar();
+      setMostraForm(false);
+      setAtual(novoEstado());
+      setEditando(false);
+      carregar();
     } catch (e) { Alert.alert('Erro', e.message); }
-    finally { setLoading(false); }
+    finally { setSalvando(false); }
   };
 
   const excluir = (p) => {
-    Alert.alert('Confirmar', `Excluir "${p.nome}"?`, [
+    Alert.alert('Confirmar', 'Excluir "' + p.nome + '"?', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Excluir', style: 'destructive', onPress: async () => {
-        setLoading(true);
         try {
-          await deleteDoc(doc(db, 'usuarios', auth.currentUser.uid, 'produtos', p.id));
+          await db.collection('usuarios').doc(auth.currentUser.uid)
+            .collection('produtos').doc(p.id).delete();
           carregar();
         } catch (e) { Alert.alert('Erro', e.message); }
-        finally { setLoading(false); }
       }}
     ]);
   };
 
-  const fechar = () => { setModalVisible(false); setAtual(estado()); setEditando(false); };
+  const abrirEdicao = (p) => {
+    setAtual({ ...p, preco: p.preco?.toString().replace('.', ',') || '', estoque: p.estoque?.toString() || '' });
+    setEditando(true);
+    setMostraForm(true);
+  };
 
+  // ── FORMULÁRIO (sem Modal, sem Portal) ───────────────────────
+  if (mostraForm) {
+    return (
+      <View style={s.flex}>
+        <Appbar.Header>
+          <Appbar.BackAction onPress={() => { setMostraForm(false); setAtual(novoEstado()); setEditando(false); }} />
+          <Appbar.Content title={editando ? 'Editar Produto' : 'Novo Produto'} />
+        </Appbar.Header>
+        <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
+          <TextInput label="Nome *" value={atual.nome}
+            onChangeText={v => setAtual({ ...atual, nome: v })}
+            mode="outlined" style={s.input} />
+          <TextInput label="Descrição" value={atual.descricao}
+            onChangeText={v => setAtual({ ...atual, descricao: v })}
+            mode="outlined" multiline numberOfLines={3} style={s.input} />
+          <TextInput label="Preço (R$) *" value={atual.preco}
+            onChangeText={v => setAtual({ ...atual, preco: v })}
+            mode="outlined" keyboardType="decimal-pad" style={s.input} />
+          <TextInput label="Estoque (un.)" value={atual.estoque}
+            onChangeText={v => setAtual({ ...atual, estoque: v })}
+            mode="outlined" keyboardType="number-pad" style={s.input} />
+          <Text style={{ fontSize: 13, color: '#555', marginBottom: 8 }}>Categoria *</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 16 }}>
+            {CATEGORIAS.map(cat => (
+              <Chip key={cat} selected={atual.categoria === cat}
+                onPress={() => setAtual({ ...atual, categoria: cat })}
+                style={{ marginRight: 6, marginBottom: 6 }}>{cat}</Chip>
+            ))}
+          </View>
+          <Text style={s.obs}>* Campos obrigatórios</Text>
+          <Button mode="contained" onPress={salvar} loading={salvando} disabled={salvando}
+            style={{ marginBottom: 12 }}>
+            {editando ? 'Atualizar' : 'Salvar'}
+          </Button>
+          <Button mode="outlined" onPress={() => { setMostraForm(false); setAtual(novoEstado()); setEditando(false); }}
+            disabled={salvando}>
+            Cancelar
+          </Button>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // ── LISTA ────────────────────────────────────────────────────
   return (
     <View style={s.flex}>
       <Appbar.Header>
-        <Appbar.BackAction onPress={() => navigation.goBack()} />
-        <Appbar.Content title="Produtos" subtitle={`${produtos.length} cadastrado(s)`} />
+        <Appbar.BackAction onPress={() => navigation.navigate('Home')} />
+        <Appbar.Content title="Produtos" subtitle={produtos.length + ' cadastrado(s)'} />
         <Appbar.Action icon="refresh" onPress={carregar} />
       </Appbar.Header>
 
       <ScrollView style={{ padding: 10 }}>
-        {loading && produtos.length === 0 ? (
-          <View style={s.center}><ActivityIndicator size="large" /><Text style={{ marginTop: 10 }}>Carregando...</Text></View>
+        {loading ? (
+          <View style={s.center}>
+            <ActivityIndicator size="large" />
+            <Text style={{ marginTop: 10 }}>Carregando...</Text>
+          </View>
         ) : produtos.length === 0 ? (
           <Card style={{ margin: 16 }}>
             <Card.Content style={{ alignItems: 'center', padding: 30 }}>
@@ -437,28 +508,30 @@ function ProdutosScreen({ navigation }) {
           <Card key={p.id} style={{ margin: 8, elevation: 3 }}>
             <Card.Content>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                <Avatar.Icon size={48} icon="package-variant"
-                  style={{ backgroundColor: COR_CAT[p.categoria] || '#607D8B', marginRight: 12 }} />
                 <View style={{ flex: 1 }}>
-                  <Title style={{ fontSize: 16, marginBottom: 4 }}>{p.nome}</Title>
-                  <Chip style={{ alignSelf: 'flex-start', backgroundColor: (COR_CAT[p.categoria] || '#607D8B') + '22' }}
-                    textStyle={{ color: COR_CAT[p.categoria] }}>{p.categoria}</Chip>
+                  <Title style={{ fontSize: 16 }}>{p.nome}</Title>
+                  <Chip style={{ alignSelf: 'flex-start', marginTop: 4 }}>{p.categoria}</Chip>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#2e7d32' }}>
-                    R$ {parseFloat(p.preco || 0).toFixed(2).replace('.', ',')}
+                    {'R$ ' + parseFloat(p.preco || 0).toFixed(2).replace('.', ',')}
                   </Text>
                   <Text style={{ fontSize: 12, color: '#666' }}>Estoque: {p.estoque ?? 0}</Text>
                 </View>
               </View>
-              {p.descricao ? <><Divider style={{ marginVertical: 8 }} /><Paragraph style={{ color: '#555' }}>{p.descricao}</Paragraph></> : null}
+              {p.descricao ? (
+                <>
+                  <Divider style={{ marginVertical: 8 }} />
+                  <Paragraph style={{ color: '#555' }}>{p.descricao}</Paragraph>
+                </>
+              ) : null}
               <Divider style={{ marginVertical: 8 }} />
               <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-                <Button mode="outlined" icon="pencil" onPress={() => {
-                  setAtual({ ...p, preco: p.preco?.toString().replace('.', ',') ?? '', estoque: p.estoque?.toString() ?? '' });
-                  setEditando(true); setModalVisible(true);
-                }} compact style={{ marginRight: 8 }}>Editar</Button>
-                <Button mode="contained" icon="delete" buttonColor="#FF3B30" onPress={() => excluir(p)} compact>Excluir</Button>
+                <Button mode="outlined" onPress={() => abrirEdicao(p)}
+                  compact style={{ marginRight: 8 }}>Editar</Button>
+                <Button mode="contained" color="#FF3B30" onPress={() => excluir(p)} compact>
+                  Excluir
+                </Button>
               </View>
             </Card.Content>
           </Card>
@@ -466,44 +539,8 @@ function ProdutosScreen({ navigation }) {
         <View style={{ height: 90 }} />
       </ScrollView>
 
-      <Portal>
-        <Modal visible={modalVisible} onDismiss={fechar} contentContainerStyle={{ margin: 16 }}>
-          <ScrollView keyboardShouldPersistTaps="handled">
-            <Card>
-              <Card.Content>
-                <Title style={s.centerTitle}>{editando ? 'Editar Produto' : 'Novo Produto'}</Title>
-                <TextInput label="Nome *" value={atual.nome} onChangeText={v => setAtual({ ...atual, nome: v })}
-                  mode="outlined" style={s.input} left={<TextInput.Icon icon="package-variant" />} />
-                <TextInput label="Descrição" value={atual.descricao} onChangeText={v => setAtual({ ...atual, descricao: v })}
-                  mode="outlined" multiline numberOfLines={2} style={s.input} left={<TextInput.Icon icon="text" />} />
-                <TextInput label="Preço (R$) *" value={atual.preco} onChangeText={v => setAtual({ ...atual, preco: v })}
-                  mode="outlined" keyboardType="decimal-pad" style={s.input} left={<TextInput.Icon icon="currency-brl" />} />
-                <TextInput label="Estoque (un.)" value={atual.estoque} onChangeText={v => setAtual({ ...atual, estoque: v })}
-                  mode="outlined" keyboardType="number-pad" style={s.input} left={<TextInput.Icon icon="warehouse" />} />
-                <Text style={{ fontSize: 13, color: '#555', marginBottom: 6 }}>Categoria *</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
-                  {CATEGORIAS.map(cat => (
-                    <Chip key={cat} selected={atual.categoria === cat} onPress={() => setAtual({ ...atual, categoria: cat })}
-                      style={{ marginRight: 6, backgroundColor: atual.categoria === cat ? COR_CAT[cat] : undefined }}
-                      textStyle={atual.categoria === cat ? { color: '#fff' } : {}}>{cat}</Chip>
-                  ))}
-                </ScrollView>
-                <Text style={s.obs}>* Campos obrigatórios</Text>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Button mode="outlined" onPress={fechar} disabled={loading} style={{ flex: 1, marginRight: 4 }} icon="close">Cancelar</Button>
-                  <Button mode="contained" onPress={salvar} loading={loading} disabled={loading}
-                    style={{ flex: 1, marginLeft: 4 }} icon={editando ? 'check' : 'plus'}>
-                    {editando ? 'Atualizar' : 'Salvar'}
-                  </Button>
-                </View>
-              </Card.Content>
-            </Card>
-          </ScrollView>
-        </Modal>
-      </Portal>
-
-      <FAB icon="plus" style={{ position: 'absolute', right: 16, bottom: 16, borderRadius: 50 }}
-        onPress={() => { setAtual(estado()); setEditando(false); setModalVisible(true); }} label="Novo Produto" />
+      <FAB icon="plus" style={{ position: 'absolute', right: 16, bottom: 16 }}
+        onPress={() => { setAtual(novoEstado()); setEditando(false); setMostraForm(true); }} />
     </View>
   );
 }
@@ -513,7 +550,11 @@ function ProdutosScreen({ navigation }) {
 // ═══════════════════════════════════════════════════════════════
 function Navigation() {
   const { user, loading } = useAuth();
-  if (loading) return <View style={s.center}><ActivityIndicator size="large" color="#6200ee" /></View>;
+  if (loading) return (
+    <View style={s.center}>
+      <ActivityIndicator size="large" color="#6200ee" />
+    </View>
+  );
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
